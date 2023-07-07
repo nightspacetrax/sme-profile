@@ -1,0 +1,36 @@
+image: docker:latest
+services:
+  - docker:dind
+
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - deploy
+
+build-job:       # This job runs in the build stage, which runs first.
+  stage: build
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    # - docker pull $CI_REGISTRY_IMAGE:latest || true
+    # - docker build --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA --tag $CI_REGISTRY_IMAGE:latest .
+    # - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker build --tag $CI_REGISTRY_IMAGE:latest .
+    - docker push $CI_REGISTRY_IMAGE:latest
+  only:
+    - main
+
+deploy-dev:
+  stage: deploy
+  image: alpine
+  before_script:
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+  script:
+    - scp -o StrictHostKeyChecking=no docker-compose.yml $EC2_SME:/home/ubuntu/sme-profile
+    - ssh -o StrictHostKeyChecking=no $EC2_SME "cd /home/ubuntu/sme-profile && docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY && docker-compose down --rmi all && docker-compose up -d"
+  only:
+    - main
+
